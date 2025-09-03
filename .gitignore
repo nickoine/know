@@ -1,9 +1,12 @@
 # App specific
 spec.yml
 .dblab.yaml
+.claude/agents
 .claude
 
 # Python
+.gitignore
+.python-version
 __pycache__/
 *.py[cod]
 *.pyo
