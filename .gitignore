@@ -1,11 +1,14 @@
+# ========================
 # App specific
+# ========================
 spec.yml
 .dblab.yaml
-.claude/agents
-.claude
+.claude/
+.claude/agents/
 
+# ========================
 # Python
-.gitignore
+# ========================
 .python-version
 __pycache__/
 *.py[cod]
@@ -14,55 +17,61 @@ __pycache__/
 *.env
 *.venv
 *.log
-*.sqlite3  # SQLite database file
+*.sqlite3
 db.sqlite3
 
+# ========================
 # Django
-media/  # User-uploaded files (if stored locally)
-staticfiles/  # Collected static files
-*/migrations/*.pyc
-*/migrations/__pycache__/
-*/migrations/*  # Ignore migrations if you generate them dynamically (optional)
+# ========================
+media/
+staticfiles/
+**/migrations/*.pyc
+**/migrations/__pycache__/
+**/migrations/*  # optional: ignore all migrations if dynamic
 /kyc/src/users/migrations/*
 /kyc/src/questionnaires/migrations/*
 /kyc/src/submissions/migrations/*
 /kyc/src/verification/migrations/*
 
-
+# ========================
 # Docker
+# ========================
 docker-compose.override.yml
 *.pid
 *.out
 *.bak
 *.swp
-.DS_Store
 *.tmp
 *.old
+.DS_Store
 
+# ========================
 # PostgreSQL
-postgres_data/  # If you're persisting PostgreSQL data locally
-pg_dump_*.sql  # Any database backups you might create
+# ========================
+postgres_data/
+pg_dump_*.sql
 *.pgpass
 
-# IDEs and Editors
+# ========================
+# IDEs / Editors
+# ========================
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
 *.iml
 
-# OS/System Files
+# ========================
+# OS / System Files
+# ========================
 Thumbs.db
 desktop.ini
 
-# Testing
+# ========================
+# Testing / Build
+# ========================
 .coverage
-htmlcov/
 test-results/
-junit-*.xml
 *.pytest_cache/
-
-# Build
-*.egg-info/
 dist/
 build/
