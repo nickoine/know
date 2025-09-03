@@ -1,0 +1,65 @@
+# App specific
+spec.yml
+.dblab.yaml
+.claude
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+*.venv
+*.log
+*.sqlite3  # SQLite database file
+db.sqlite3
+
+# Django
+media/  # User-uploaded files (if stored locally)
+staticfiles/  # Collected static files
+*/migrations/*.pyc
+*/migrations/__pycache__/
+*/migrations/*  # Ignore migrations if you generate them dynamically (optional)
+/kyc/src/users/migrations/*
+/kyc/src/questionnaires/migrations/*
+/kyc/src/submissions/migrations/*
+/kyc/src/verification/migrations/*
+
+
+# Docker
+docker-compose.override.yml
+*.pid
+*.out
+*.bak
+*.swp
+.DS_Store
+*.tmp
+*.old
+
+# PostgreSQL
+postgres_data/  # If you're persisting PostgreSQL data locally
+pg_dump_*.sql  # Any database backups you might create
+*.pgpass
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.iml
+
+# OS/System Files
+Thumbs.db
+desktop.ini
+
+# Testing
+.coverage
+htmlcov/
+test-results/
+junit-*.xml
+*.pytest_cache/
+
+# Build
+*.egg-info/
+dist/
+build/

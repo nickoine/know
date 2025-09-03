@@ -1,0 +1,73 @@
+services:
+
+  db:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
+  redis:
+    image: redis:7
+    container_name: redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    ports:
+      - "6379:6379"
+    restart: always
+    command: redis-server --save "" --appendonly no
+
+
+  app:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DATABASE_URL: ${DB_URL}
+      DJANGO_SETTINGS_MODULE: etc.settings
+    command: >
+      sh -c "while ! pg_isready -h db -p 5432 -U ${DB_USER} -d ${DB_NAME}; do sleep 1; done &&
+             python manage.py runserver ${BIND_HOST}:8000"
+    ports:
+      - "8000:8000"
+    # Comment out volume mount to prevent overriding container dependencies
+    # volumes:
+    #   - .:/app
+
+volumes:
+  postgres_data:
