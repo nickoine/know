@@ -37,6 +37,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    'questionnaire',
+    'submission',
+    'user',
+    'verification'
 ]
 
 MIDDLEWARE = [
@@ -99,7 +104,7 @@ else:
             "USER": os.getenv("DB_USER", "kyc_dev"),
             "PASSWORD": os.getenv("DB_PASSWORD", "password"),
             "PORT": os.getenv("DB_PORT", "5432"),
-            "HOST": os.getenv("DB_HOST", "db")
+            "HOST": os.getenv("DB_HOST", "localhost")
         }
     }
 
@@ -158,6 +163,9 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Custom User Model
+AUTH_USER_MODEL = 'user.User'
 
 
 # ------------------------------------------------------------------------------
