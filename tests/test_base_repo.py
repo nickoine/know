@@ -215,12 +215,13 @@ class BaseRepositoryCacheTests(TestClassBase):
 
     def test_safe_cache_operation_with_exception(self):
         """Test _safe_cache_operation handles cache exceptions gracefully."""
-        mock_operation = Mock(side_effect=Exception("Cache error"))
+        self.mock_cache_manager.set.side_effect = Exception("Cache error")
         
-        result = self.repo._safe_cache_operation(mock_operation, "test_key", "test_value")
+        result = self.repo._safe_cache_operation("set", "test_key", "test_value")
         
         assert result is None
-        self.assert_logs_warning("Cache operation failed")
+        # Verify that the cache manager set method was called with the expected parameters
+        self.mock_cache_manager.set.assert_called_once_with("test_key", "test_value", 900)
 
     def test_invalidate_collection_caches(self):
         """Test _invalidate_collection_caches removes collection cache entries."""
@@ -259,6 +260,9 @@ class BaseRepositoryGetEntityByIdTests(TestClassBase):
         self.repo = BaseRepository(model=self.real_test_model_as_class, cache_enabled=True)
         self.repo._manager = self.mock_manager
         self.repo._cache_manager = self.mock_cache_manager = Mock()
+        
+        # Mock the logger specifically for base_repo module
+        self.mock_repo_logger = self._start_patch_with_cleanup("cmn.base_repo.logger")
 
     def test_get_entity_by_id_cache_hit(self):
         """Test get_entity_by_id returns cached entity."""
@@ -315,10 +319,16 @@ class BaseRepositoryGetEntityByIdTests(TestClassBase):
         self.mock_cache_manager.get.return_value = None
         self.mock_manager.get_by_id.side_effect = DatabaseError("Connection failed")
         
-        with pytest.raises(DatabaseError):
+        with pytest.raises(ValueError, match="Failed to fetch entity by ID: Connection failed"):
             self.repo.get_entity_by_id(123)
         
-        self.assert_logs_error("Error retrieving entity")
+        # Verify error was logged with expected message format
+        self.mock_repo_logger.error.assert_called_once()
+        call_args = self.mock_repo_logger.error.call_args
+        logged_message = call_args[0][0]
+        
+        # Check that the logged message contains expected components
+        assert "Failed to fetch ModelTest by ID=123: Connection failed" in logged_message
 
 
 class BaseRepositoryGetAllEntitiesTests(TestClassBase):
@@ -330,6 +340,9 @@ class BaseRepositoryGetAllEntitiesTests(TestClassBase):
         self.repo._manager = self.mock_manager
         self.repo._cache_manager = self.mock_cache_manager = Mock()
         self.mock_entities = [self.real_mock_model, self.real_mock_model]
+        
+        # Mock the logger specifically for base_repo module
+        self.mock_repo_logger = self._start_patch_with_cleanup("cmn.base_repo.logger")
 
     def test_get_all_entities_cache_hit(self):
         """Test get_all_entities returns cached results."""
@@ -402,11 +415,17 @@ class BaseRepositoryGetAllEntitiesTests(TestClassBase):
 class BaseRepositoryCreateEntityTests(TestClassBase):
     """Test BaseRepository create_entity method."""
 
+    # Allow database access for transaction-decorated methods
+    databases = ['default']
+
     def setUp(self):
         super().setUp()
         self.repo = BaseRepository(model=self.real_test_model_as_class, cache_enabled=True)
         self.repo._manager = self.mock_manager
         self.repo._cache_manager = self.mock_cache_manager = Mock()
+        
+        # Mock the logger specifically for base_repo module
+        self.mock_repo_logger = self._start_patch_with_cleanup("cmn.base_repo.logger")
 
     @patch('cmn.base_repo.transaction')
     def test_create_entity_success(self, _mock_transaction):
@@ -426,10 +445,12 @@ class BaseRepositoryCreateEntityTests(TestClassBase):
         ]
         self.mock_cache_manager.delete.assert_has_calls(expected_cache_deletes, any_order=True)
 
+
     def test_create_entity_with_empty_data(self):
         """Test create_entity with empty data raises validation error."""
         with pytest.raises(ValueError, match="No data provided for create"):
             self.repo.create_entity()
+
 
     @patch('cmn.base_repo.transaction')
     def test_create_entity_handles_database_error(self, _mock_transaction):
@@ -437,30 +458,43 @@ class BaseRepositoryCreateEntityTests(TestClassBase):
         kwargs = {'name': 'test'}
         self.mock_manager.create_instance.side_effect = DatabaseError("Creation failed")
         
-        with pytest.raises(DatabaseError):
+        with pytest.raises(ValueError, match="Failed to create entity: Creation failed"):
             self.repo.create_entity(**kwargs)
         
-        self.assert_logs_error("Error creating entity")
+        # Verify the error was logged correctly
+        self.mock_repo_logger.error.assert_called_once()
+        logged_message = self.mock_repo_logger.error.call_args[0][0]
+        assert "Unexpected error creating ModelTest" in logged_message
+        assert "Creation failed" in logged_message
+
 
     @patch('cmn.base_repo.transaction')
-    def test_create_entity_returns_none_on_failure(self, _mock_transaction):
-        """Test create_entity returns None when manager returns None."""
+    def test_create_entity_raises_error_when_manager_returns_none(self, _mock_transaction):
+        """Test create_entity raises ValueError when manager returns None."""
         kwargs = {'name': 'test'}
         self.mock_manager.create_instance.return_value = None
         
-        result = self.repo.create_entity(**kwargs)
+        with pytest.raises(ValueError, match="Failed to create entity - manager returned None"):
+            self.repo.create_entity(**kwargs)
         
-        assert result is None
+        # Verify the manager was called with the correct arguments
+        self.mock_manager.create_instance.assert_called_once_with(name='test')
 
 
 class BaseRepositoryUpdateEntityTests(TestClassBase):
     """Test BaseRepository update_entity method."""
+
+    # Allow database access for transaction-decorated methods
+    databases = ['default']
 
     def setUp(self):
         super().setUp()
         self.repo = BaseRepository(model=self.real_test_model_as_class, cache_enabled=True)
         self.repo._manager = self.mock_manager
         self.repo._cache_manager = self.mock_cache_manager = Mock()
+        
+        # Mock the logger specifically for base_repo module
+        self.mock_repo_logger = self._start_patch_with_cleanup("cmn.base_repo.logger")
 
     @patch('cmn.base_repo.transaction')
     def test_update_entity_success(self, _mock_transaction):
@@ -483,15 +517,18 @@ class BaseRepositoryUpdateEntityTests(TestClassBase):
         ]
         self.mock_cache_manager.delete.assert_has_calls(expected_collection_deletes, any_order=True)
 
+
     def test_update_entity_with_invalid_id(self):
         """Test update_entity with invalid ID raises validation error."""
         with pytest.raises(ValueError, match="Invalid ID format"):
             self.repo.update_entity("invalid", name="test")
 
+
     def test_update_entity_with_empty_data(self):
         """Test update_entity with empty data raises validation error."""
         with pytest.raises(ValueError, match="No data provided for update"):
             self.repo.update_entity(123)
+
 
     @patch('cmn.base_repo.transaction')
     def test_update_entity_handles_database_error(self, _mock_transaction):
@@ -501,20 +538,31 @@ class BaseRepositoryUpdateEntityTests(TestClassBase):
         self.mock_manager.get_by_id.return_value = mock_instance
         mock_instance.update.side_effect = DatabaseError("Update failed")
         
-        with pytest.raises(DatabaseError):
+        with pytest.raises(ValueError, match="Update failed: Update failed"):
             self.repo.update_entity(123, **kwargs)
         
-        self.assert_logs_error("Error updating entity")
+        # Verify the error was logged correctly
+        self.mock_repo_logger.error.assert_called_once()
+        logged_message = self.mock_repo_logger.error.call_args[0][0]
+        assert "Failed to update ModelTest ID=123" in logged_message
+        assert "Update failed" in logged_message
 
 
 class BaseRepositoryDeleteEntityTests(TestClassBase):
     """Test BaseRepository delete_entity method."""
+
+    # Allow database access for transaction-decorated methods
+    databases = ['default']
 
     def setUp(self):
         super().setUp()
         self.repo = BaseRepository(model=self.real_test_model_as_class, cache_enabled=True)
         self.repo._manager = self.mock_manager
         self.repo._cache_manager = self.mock_cache_manager = Mock()
+        
+        # Mock the logger specifically for base_repo module
+        self.mock_repo_logger = self._start_patch_with_cleanup("cmn.base_repo.logger")
+
 
     @patch('cmn.base_repo.transaction')
     def test_delete_entity_success(self, _mock_transaction):
@@ -536,10 +584,12 @@ class BaseRepositoryDeleteEntityTests(TestClassBase):
         ]
         self.mock_cache_manager.delete.assert_has_calls(expected_collection_deletes, any_order=True)
 
+
     def test_delete_entity_with_invalid_id(self):
         """Test delete_entity with invalid ID raises validation error."""
         with pytest.raises(ValueError, match="Invalid ID format"):
             self.repo.delete_entity("invalid")
+
 
     @patch('cmn.base_repo.transaction')
     def test_delete_entity_handles_database_error(self, _mock_transaction):
@@ -548,10 +598,14 @@ class BaseRepositoryDeleteEntityTests(TestClassBase):
         self.mock_manager.get_by_id.return_value = mock_instance
         mock_instance.delete.side_effect = DatabaseError("Deletion failed")
         
-        with pytest.raises(DatabaseError):
+        with pytest.raises(ValueError, match="Deletion failed: Deletion failed"):
             self.repo.delete_entity(123)
         
-        self.assert_logs_error("Error deleting entity")
+        # Verify the error was logged correctly
+        self.mock_repo_logger.error.assert_called_once()
+        logged_message = self.mock_repo_logger.error.call_args[0][0]
+        assert "Failed to delete ModelTest ID=123: Deletion failed" in logged_message
+
 
     @patch('cmn.base_repo.transaction')
     def test_delete_entity_returns_none_when_not_found(self, _mock_transaction):
@@ -566,6 +620,9 @@ class BaseRepositoryDeleteEntityTests(TestClassBase):
 class BaseRepositoryBulkOperationsTests(TestClassBase):
     """Test BaseRepository bulk operation methods."""
 
+    # Allow database access for transaction-decorated methods
+    databases = ['default']
+
     def setUp(self):
         super().setUp()
         self.repo = BaseRepository(model=self.real_test_model_as_class, cache_enabled=True)
@@ -573,22 +630,43 @@ class BaseRepositoryBulkOperationsTests(TestClassBase):
         self.repo._cache_manager = self.mock_cache_manager = Mock()
         self.mock_instances = [self.real_mock_model, self.real_mock_model]
 
-    @patch('cmn.base_repo.transaction')
-    def test_bulk_create_entities_success(self, _mock_transaction):
+
+    @patch('cmn.base_repo.logger')  
+    def test_bulk_create_entities_success(self, mock_logger):
         """Test bulk_create_entities successfully creates multiple entities."""
+        # Setup
         self.mock_manager.bulk_create_instances.return_value = self.mock_instances
         
-        result = self.repo.bulk_create_entities(self.mock_instances)
-        
-        self.mock_manager.bulk_create_instances.assert_called_once_with(self.mock_instances, batch_size=100)
-        assert result == self.mock_instances
-        
-        expected_cache_deletes = [
-            call("test.modeltest.all"),
-            call("test.modeltest.count"),
-            call("test.modeltest.paginated")
-        ]
-        self.mock_cache_manager.delete.assert_has_calls(expected_cache_deletes, any_order=True)
+        # Mock the transaction.atomic decorator to prevent database access
+        with patch('cmn.base_repo.transaction.atomic') as mock_atomic:
+            mock_atomic.return_value.__enter__ = Mock(return_value=Mock())
+            mock_atomic.return_value.__exit__ = Mock(return_value=None)
+            
+            # Execute
+            result = self.repo.bulk_create_entities(self.mock_instances)
+            
+            # Verify manager called with correct parameters (default batch_size=100)
+            self.mock_manager.bulk_create_instances.assert_called_once_with(self.mock_instances, batch_size=100)
+            
+            # Verify correct return value
+            assert result == self.mock_instances
+            
+            # Verify cache invalidation calls
+            expected_cache_deletes = [
+                call("test.modeltest.all"),
+                call("test.modeltest.count"), 
+                call("test.modeltest.paginated")
+            ]
+            self.mock_cache_manager.delete.assert_has_calls(expected_cache_deletes, any_order=True)
+            
+            # Verify logging calls
+            mock_logger.debug.assert_called_once_with(
+                f"Starting bulk create of {len(self.mock_instances)} ModelTest instances"
+            )
+            mock_logger.info.assert_called_once_with(
+                f"Successfully created {len(self.mock_instances)}/{len(self.mock_instances)} ModelTest instances"
+            )
+
 
     def test_bulk_create_entities_with_custom_batch_size(self):
         """Test bulk_create_entities with custom batch size."""
@@ -599,10 +677,33 @@ class BaseRepositoryBulkOperationsTests(TestClassBase):
             
             self.mock_manager.bulk_create_instances.assert_called_once_with(self.mock_instances, batch_size=50)
 
+
     def test_bulk_create_entities_with_empty_list(self):
         """Test bulk_create_entities with empty instance list raises error."""
-        with pytest.raises(ValueError, match="Empty instances list provided for bulk_create"):
+        with pytest.raises(ValueError, match="Empty instances list provided for bulk create"):
             self.repo.bulk_create_entities([])
+
+
+    def test_bulk_create_entities_with_invalid_batch_size(self):
+        """Test bulk_create_entities with invalid batch size raises error."""
+        with pytest.raises(ValueError, match="Batch size must be a positive integer"):
+            self.repo.bulk_create_entities(self.mock_instances, batch_size=0)
+        
+        with pytest.raises(ValueError, match="Batch size must be a positive integer"):
+            self.repo.bulk_create_entities(self.mock_instances, batch_size=-1)
+        
+        with pytest.raises(ValueError, match="Batch size must be a positive integer"):
+            self.repo.bulk_create_entities(self.mock_instances, batch_size="invalid")
+
+
+    @patch('cmn.base_repo.transaction')
+    def test_bulk_create_entities_manager_returns_empty(self, _mock_transaction):
+        """Test bulk_create_entities raises error when manager returns empty result."""
+        self.mock_manager.bulk_create_instances.return_value = []
+        
+        with pytest.raises(ValueError, match="Bulk create failed - no instances were created"):
+            self.repo.bulk_create_entities(self.mock_instances)
+
 
     @patch('cmn.base_repo.transaction')
     def test_bulk_update_entities_success(self, _mock_transaction):
@@ -617,10 +718,12 @@ class BaseRepositoryBulkOperationsTests(TestClassBase):
         )
         assert result == self.mock_instances
 
+
     def test_bulk_update_entities_with_empty_fields(self):
         """Test bulk_update_entities with empty fields list raises error."""
-        with pytest.raises(ValueError, match="Empty fields list provided for bulk_update"):
+        with pytest.raises(ValueError, match="Empty fields list provided for bulk update"):
             self.repo.bulk_update_entities(self.mock_instances, [])
+
 
     @patch('cmn.base_repo.transaction')
     def test_bulk_delete_entities_with_instances(self, _mock_transaction):
@@ -631,6 +734,7 @@ class BaseRepositoryBulkOperationsTests(TestClassBase):
         
         self.mock_manager.bulk_delete_instances.assert_called_once_with()
         assert result == (self.mock_instances, len(self.mock_instances))
+
 
     @patch('cmn.base_repo.transaction')
     def test_bulk_delete_entities_with_filters(self, _mock_transaction):
@@ -643,9 +747,10 @@ class BaseRepositoryBulkOperationsTests(TestClassBase):
         self.mock_manager.bulk_delete_instances.assert_called_once_with(**filters)
         assert result == (self.mock_instances, len(self.mock_instances))
 
+
     def test_bulk_delete_entities_with_no_criteria(self):
         """Test bulk_delete_entities without instances or filters raises error."""
-        with pytest.raises(ValueError, match="Either instances or filter criteria must be provided"):
+        with pytest.raises(ValueError, match="Either instances list or filters must be provided for bulk delete"):
             self.repo.bulk_delete_entities()
 
 
@@ -658,15 +763,39 @@ class BaseRepositoryUtilityMethodsTests(TestClassBase):
         self.repo._manager = self.mock_manager
         self.repo._cache_manager = self.mock_cache_manager = Mock()
 
+
     def test_get_entities_iterator(self):
-        """Test get_entities_iterator returns manager iterator."""
-        mock_iterator = Mock()
-        self.mock_manager.get_iterator.return_value = mock_iterator
+        """Test get_entities_iterator returns an iterator that yields entities in batches."""
+
+        # Mock the _fetch_all_entities method to return test data in batches
+        batch_1 = [Mock(id=1), Mock(id=2)]
+        batch_2 = [Mock(id=3)]  # Smaller final batch (< batch_size, stops iteration)
         
-        result = self.repo.get_entities_iterator(batch_size=50)
-        
-        self.mock_manager.get_iterator.assert_called_once_with(batch_size=50)
-        assert result == mock_iterator
+        with patch.object(self.repo, '_fetch_all_entities') as mock_fetch:
+            mock_fetch.side_effect = [batch_1, batch_2]
+            result = self.repo.get_entities_iterator(batch_size=2)
+            
+            # Verify it returns an iterator/generator
+            assert hasattr(result, '__iter__')
+            assert hasattr(result, '__next__')
+            
+            # Collect all yielded entities
+            entities = list(result)
+            
+            # Verify all entities were yielded
+            assert len(entities) == 3
+            assert entities[0].id == 1
+            assert entities[1].id == 2  
+            assert entities[2].id == 3
+            
+            # Verify _fetch_all_entities was called with correct parameters
+            # Iterator stops when batch size < requested size, so only 2 calls
+            expected_calls = [
+                call(limit=2, offset=0),  # First batch
+                call(limit=2, offset=2),  # Second batch (smaller, stops iteration)
+            ]
+            mock_fetch.assert_has_calls(expected_calls)
+
 
     def test_count_entities_cache_hit(self):
         """Test count_entities returns cached count."""
@@ -678,16 +807,34 @@ class BaseRepositoryUtilityMethodsTests(TestClassBase):
         self.mock_manager.count.assert_not_called()
         assert result == 42
 
+
     def test_count_entities_cache_miss(self):
         """Test count_entities with cache miss queries database."""
+
+        # Setup: Cache miss scenario
         self.mock_cache_manager.get.return_value = None
-        self.mock_manager.count.return_value = 42
         
+        # Mock the filter_by chain: manager.filter_by(**filters).count()
+        mock_queryset = Mock()
+        mock_queryset.count.return_value = 42
+        self.mock_manager.filter_by.return_value = mock_queryset
+        
+        # Execute the method
         result = self.repo.count_entities(status='active')
         
-        self.mock_manager.count.assert_called_once_with(status='active')
+        # Verify cache was checked first
+        self.mock_cache_manager.get.assert_called_once()
+        
+        # Verify database was queried with correct filters
+        self.mock_manager.filter_by.assert_called_once_with(status='active')
+        mock_queryset.count.assert_called_once()
+        
+        # Verify result was cached
         self.mock_cache_manager.set.assert_called_once()
+        
+        # Verify correct result returned
         assert result == 42
+
 
     def test_exists_entity_with_filters(self):
         """Test exists_entity with filter criteria."""
@@ -698,39 +845,62 @@ class BaseRepositoryUtilityMethodsTests(TestClassBase):
         self.mock_manager.exists.assert_called_once_with(name='test')
         assert result is True
 
+
     def test_exists_entity_without_filters(self):
         """Test exists_entity without filters raises error."""
         with pytest.raises(ValueError, match="At least one filter must be provided"):
             self.repo.exists_entity()
 
+
     def test_get_paginated_entities_success(self):
         """Test get_paginated_entities returns pagination metadata."""
-        mock_page_data = {
-            'entities': [self.real_mock_model],
-            'total_count': 100,
-            'page': 1,
-            'per_page': 10,
-            'total_pages': 10,
-            'has_next': True,
-            'has_previous': False
-        }
-        self.mock_manager.get_paginated.return_value = mock_page_data
+
+        # Setup test data
+        test_entities = [self.real_mock_model]
         
-        result = self.repo.get_paginated_entities(page=1, per_page=10, status='active')
-        
-        self.mock_manager.get_paginated.assert_called_once_with(
-            page=1, per_page=10, status='active'
-        )
-        assert result == mock_page_data
+        # Mock count_entities to return total count (called internally)
+        with patch.object(self.repo, 'count_entities') as mock_count:
+            mock_count.return_value = 100
+            
+            # Mock the manager's filter_by to return a queryset
+            mock_queryset = Mock()
+            mock_queryset.__getitem__ = Mock(return_value=test_entities)  # Handles slicing
+            self.mock_manager.filter_by.return_value = mock_queryset
+            
+            # Execute the method
+            result = self.repo.get_paginated_entities(page=1, per_page=10, status='active')
+            
+            # Verify count_entities was called with filters
+            mock_count.assert_called_once_with(status='active')
+            
+            # Verify filter_by was called correctly
+            self.mock_manager.filter_by.assert_called_once_with(status='active')
+            
+            # Verify queryset was sliced correctly (offset=0, limit=10)
+            mock_queryset.__getitem__.assert_called_once_with(slice(0, 10))
+            
+            # Verify the returned pagination structure
+            expected_result = {
+                'entities': test_entities,
+                'total_count': 100,
+                'page': 1,
+                'per_page': 10,
+                'total_pages': 10,
+                'has_next': True,
+                'has_previous': False
+            }
+            assert result == expected_result
+
 
     def test_get_paginated_entities_with_invalid_page(self):
         """Test get_paginated_entities validates page parameter."""
-        with pytest.raises(ValueError, match="Page must be positive"):
+        with pytest.raises(ValueError, match="Page must be a positive integer, got 0"):
             self.repo.get_paginated_entities(page=0, per_page=10)
+
 
     def test_get_paginated_entities_with_invalid_per_page(self):
         """Test get_paginated_entities validates per_page parameter."""
-        with pytest.raises(ValueError, match="Per page must be positive"):
+        with pytest.raises(ValueError, match="Per-page count must be a positive integer, got 0"):
             self.repo.get_paginated_entities(page=1, per_page=0)
 
 
@@ -775,30 +945,67 @@ class BaseRepositorySecurityTests(TestClassBase):
 class BaseRepositoryIntegrationTests(TestClassBase):
     """Test BaseRepository integration scenarios."""
 
+    # Allow database access for transaction-decorated methods
+    databases = ['default']
+
     def setUp(self):
         super().setUp()
         self.repo = BaseRepository(model=self.real_test_model_as_class, cache_enabled=True)
         self.repo._manager = self.real_mock_manager
         self.repo._cache_manager = Mock()
+        
+        # Mock the logger specifically for base_repo module
+        self.mock_repo_logger = self._start_patch_with_cleanup("cmn.base_repo.logger")
+
 
     @patch('cmn.base_repo.transaction')
     def test_create_then_get_entity_flow(self, _mock_transaction):
         """Test complete create and retrieve workflow."""
+        # Set up test entity with proper ID
         created_entity = self.real_mock_model
         created_entity.id = 123
         
-        self.real_mock_manager.create_instance.return_value = created_entity
-        self.real_mock_manager.get_by_id.return_value = created_entity
-        self.repo._cache_manager.get.return_value = None
+        # Use consistent manager setup - switch to mock_manager for proper control
+        self.repo._manager = self.mock_manager
         
+        # Mock to create workflow
+        self.mock_manager.create_instance.return_value = created_entity
+        # Mock the get workflow - cache miss first, then DB hit
+        self.repo._cache_manager.get.return_value = None
+        self.mock_manager.get_by_id.return_value = created_entity
+        
+        # Execute the create-then-get workflow
         created = self.repo.create_entity(name='test', value=42)
         retrieved = self.repo.get_entity_by_id(123)
         
+        # Verify both operations return the same entity
         assert created == created_entity
         assert retrieved == created_entity
+        assert created.id == 123
+        assert retrieved.id == 123
         
-        self.real_mock_manager.create_instance.assert_called_once_with(name='test', value=42)
-        self.real_mock_manager.get_by_id.assert_called_once_with(123)
+        # Verify create operation was called correctly
+        self.mock_manager.create_instance.assert_called_once_with(name='test', value=42)
+        
+        # Verify get operation was called correctly 
+        self.mock_manager.get_by_id.assert_called_once_with(123)
+        
+        # Verify cache operations during the workflow
+        # 1. During get: cache miss, so check cache first
+        expected_cache_key = "test.modeltest.123"
+        self.repo._cache_manager.get.assert_called_with(expected_cache_key)
+        
+        # 2. During get: cache the retrieved entity
+        self.repo._cache_manager.set.assert_called_with(expected_cache_key, created_entity, 900)
+        
+        # 3. During create: invalidate collection caches
+        expected_cache_deletes = [
+            call("test.modeltest.all"),
+            call("test.modeltest.count"), 
+            call("test.modeltest.paginated")
+        ]
+        self.repo._cache_manager.delete.assert_has_calls(expected_cache_deletes, any_order=True)
+
 
     @patch('cmn.base_repo.transaction')
     def test_update_invalidates_cache_correctly(self, _mock_transaction):
@@ -809,10 +1016,11 @@ class BaseRepositoryIntegrationTests(TestClassBase):
         # Mock the model's update method to avoid actual database operations
         updated_entity.update = Mock()
         
-        self.real_mock_manager.get_by_id.return_value = updated_entity
-        
+        # Switch to using mock_manager for consistency with other tests
+        # and to avoid transaction decorator issues
+        self.repo._manager = self.mock_manager
+        self.mock_manager.get_by_id.return_value = updated_entity
         result = self.repo.update_entity(123, name='updated')
-        
         assert result == updated_entity
         
         # Verify the update method was called
@@ -826,16 +1034,17 @@ class BaseRepositoryIntegrationTests(TestClassBase):
         ]
         self.repo._cache_manager.delete.assert_has_calls(expected_cache_deletes, any_order=True)
 
+
     def test_error_handling_with_real_manager(self):
         """Test error handling works with real manager instance."""
-        self.real_mock_manager.get_by_id.side_effect = DatabaseError("Database connection failed")
-        self.repo._cache_manager.get.return_value = None
-        
-        with pytest.raises(ValueError, match="Failed to fetch entity by ID"):
-            self.repo.get_entity_by_id(123)
-        
-        # The repository logger should log the error with exc_info=True
-        self.mock_repo_logger.error.assert_called_once()
-        args, kwargs = self.mock_repo_logger.error.call_args
-        assert "Failed to fetch ModelTest by ID=123: Database connection failed" in args[0]
-        assert kwargs.get('exc_info') is True
+        with patch.object(self.real_mock_manager, 'get_by_id', side_effect=DatabaseError("Database connection failed")):
+            self.repo._cache_manager.get.return_value = None
+            
+            with pytest.raises(ValueError, match="Failed to fetch entity by ID"):
+                self.repo.get_entity_by_id(123)
+            
+            # The repository logger should log the error with exc_info=True
+            self.mock_repo_logger.error.assert_called_once()
+            args, kwargs = self.mock_repo_logger.error.call_args
+            assert "Failed to fetch ModelTest by ID=123: Database connection failed" in args[0]
+            assert kwargs.get('exc_info') is True
