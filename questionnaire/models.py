@@ -6,8 +6,8 @@ from cmn.base_model import BaseModel
 class Questionnaire(BaseModel):
     """Represents a form with multiple questions."""
 
-    STATUS_CHOICES = [('draft', 'Draft'), ('public', 'Public'), ('personal', 'Personal')]
-    TYPE_CHOICES = [('regular', 'Regular'), ('mandatory', 'Mandatory')]
+    SCOPE_CHOICES = [('draft', 'Draft'), ('public', 'Public'), ('assigned', 'Assigned')]
+    TYPE_CHOICES = [('regular', 'Regular'), ('verification', 'Verification'), ('mandatory', 'Mandatory')]
 
     name = models.CharField(
         max_length=255,
@@ -17,9 +17,10 @@ class Questionnaire(BaseModel):
         help_text=_("Unique identifier for the questionnaire (e.g., 'KYC Form 2025').")
     )
 
-    description = models.TextField(
+    about = models.TextField(
         max_length=255,
-        verbose_name=_("Description"),
+        null=True,
+        verbose_name=_("About"),
         help_text=_("Purpose and instructions for respondents.")
     )
 
@@ -30,13 +31,13 @@ class Questionnaire(BaseModel):
         help_text=_("Classification of questionnaire type.")
     )
 
-    status = models.CharField(
+    questionnaire_scope = models.CharField(
         max_length=20,
-        choices=STATUS_CHOICES,
-        default=STATUS_CHOICES[0][0],
+        choices=SCOPE_CHOICES,
+        default=SCOPE_CHOICES[0][0],
         db_index=True,
         blank=True,
-        verbose_name=_("Status"),
+        verbose_name=_("Scope"),
         help_text=_("Publication state of the questionnaire.")
     )
 
@@ -62,7 +63,7 @@ class Questionnaire(BaseModel):
         help_text="Users that this questionnaire is assigned to"
     )
 
-    created_by = models.ForeignKey(
+    staff_id = models.ForeignKey(
         'user.User',
         on_delete=models.SET_NULL,
         null=True,
@@ -76,19 +77,6 @@ class Questionnaire(BaseModel):
         help_text=_("When this questionnaire was created.")
     )
 
-    updated_by = models.ForeignKey(
-        'user.User',
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='updated_questionnaire'
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-        null=True,
-        verbose_name=_("Updated At"),
-        help_text=_("Last modification timestamp.")
-    )
 
     # group = models.ForeignKey(
     #     'QuestionnaireGroup',
@@ -119,22 +107,18 @@ class Questionnaire(BaseModel):
     class Meta:
         verbose_name = _("Questionnaire")
         verbose_name_plural = _("Questionnaires")
-        ordering = ['-status', '-created_at']
+        ordering = ['-questionnaire_scope', '-created_at']
         indexes = [
-            models.Index(fields=['status', 'questionnaire_type']),
-            models.Index(fields=['name', 'status']),
-            models.Index(fields=['created_by', 'status']),
+            models.Index(fields=['questionnaire_scope', 'questionnaire_type']),
+            models.Index(fields=['name', 'questionnaire_scope']),
+            models.Index(fields=['staff_id', 'questionnaire_scope']),
         ]
         # admin
-        permissions = [
-            ("can_publish_questionnaire", "Can publish questionnaire"),
-            ("can_assign_questionnaire", "Can assign questionnaire to accounts"),
-            ("can_update_questionnaire", "Can update questionnaire"),
-        ]
+        permissions = []
 
 
     def __str__(self):
-        return f"{self.name} (Type: {self.questionnaire_type}, Status: {self.status})"
+        return f"{self.name} (Type: {self.questionnaire_type}, Scope: {self.questionnaire_scope})"
 
 
 # class QuestionnaireGroup(BaseModel):
@@ -190,12 +174,6 @@ class Question(BaseModel):
         help_text=_("Actual question text for respondents.")
     )
 
-    description = models.TextField(
-        max_length=255,
-        verbose_name=_("Description"),
-        help_text=_("Purpose and instructions for respondents.")
-    )
-
     validation_rules = models.JSONField(
         default=dict,
         blank=True,
@@ -203,7 +181,7 @@ class Question(BaseModel):
         help_text=_("Configurable validation (e.g., {'min_length': 2, 'max_length': 100}).")
     )
 
-    created_by = models.ForeignKey(
+    staff_id = models.ForeignKey(
         'user.User',
         null=True,
         on_delete=models.SET_NULL,
@@ -230,13 +208,9 @@ class Question(BaseModel):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['reference_code', 'question_type']),
-            models.Index(fields=['created_by', 'created_at']),
+            models.Index(fields=['staff_id', 'created_at']),
         ]
-        permissions = [
-            ("can_create_question", "Can create questions"),
-            ("can_assign_question", "Can assign questions to questionnaire"),
-            ("can_bulk_upload_questions", "Can bulk upload questions"),
-        ]
+        permissions = []
 
     def __str__(self):
         return f"Question [{self.reference_code}] ({self.question_type})"

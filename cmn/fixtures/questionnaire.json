@@ -1,0 +1,13 @@
+[
+  {
+    "model": "questionnaires.questionnaire",
+    "pk": 1,
+    "fields": {
+      "staff_id": 1,
+      "name": "Verification_2025",
+      "about": "Verification questionnaire for collecting personal data",
+      "questionnaire_type": "regular",
+      "questionnaire_scope": "draft"
+    }
+  }
+]

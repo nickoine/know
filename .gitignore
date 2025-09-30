@@ -5,6 +5,8 @@ spec.yml
 .dblab.yaml
 .claude/
 .claude/agents/
+CLAUDE.md
+READMEDEV.md
 
 # ========================
 # Python
