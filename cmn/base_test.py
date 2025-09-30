@@ -344,3 +344,5 @@ class BaseApiTestCase(TestCase):
 
         # Otherwise return raw data
         return fields
+
+        self.mock_cache.reset_mock()
