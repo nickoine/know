@@ -65,9 +65,8 @@ services:
              python manage.py runserver ${BIND_HOST}:8000"
     ports:
       - "8000:8000"
-    # Comment out volume mount to prevent overriding container dependencies
-    # volumes:
-    #   - .:/app
+    volumes:
+      - .:/app
 
 volumes:
   postgres_data:

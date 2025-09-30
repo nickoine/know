@@ -1,0 +1,14 @@
+[
+  {
+    "model": "users.user",
+    "pk": 1,
+    "fields": {
+      "username": "admin1",
+      "email": "admin@example.com",
+      "password": "pbkdf2_sha256$260000$abcdefg$hashedpasswordhere",
+      "is_verified": true,
+      "is_active": true,
+      "is_staff": true
+    }
+  }
+]

@@ -1,17 +1,21 @@
 # Built-in
-from __future__ import annotations
+import json
+from pathlib import Path
+from typing import Optional, Union, Dict, Any
 from unittest.mock import MagicMock, patch
-from typing import TYPE_CHECKING
 
 # External
-from django.test import SimpleTestCase
+from rest_framework.test import APIClient
+from django.contrib.auth.hashers import make_password
+from django.test import SimpleTestCase, TestCase
 from django.db import models
 
 # Internal
 from cmn import DBManager, BaseModel
-
-if TYPE_CHECKING:
-    from typing import Optional
+from user.models import User
+from user.repo import UserRepository
+from questionnaire.repo import QuestionnaireRepository
+from questionnaire.models import Questionnaire
 
 
 class ModelTest(BaseModel):
@@ -207,4 +211,138 @@ class TestClassBase(SimpleTestCase):
         self.mock_logger.reset_mock()
         self.mock_commit.reset_mock()
         self.mock_rollback.reset_mock()
+        self.mock_cache.reset_mock()
+
+
+class BaseApiTestCase(TestCase):
+    """
+    Base class for API integration tests.
+
+    - On class setup: run all migrations once.
+    - Before each test method: flush all data.
+    - Provides self.client for making API requests.
+    """
+    _admin: Optional[User] = None
+    _questionnaire: Optional[Questionnaire] = None
+
+    client: APIClient = None
+
+
+    def setUp(self) -> None:
+        # Give each test its own client instance
+        self.client = APIClient()
+        super().setUp()
+
+
+    def tearDown(self) -> None:
+        super().tearDown()
+
+
+    def load_admin_in_db(self) -> User:
+        """
+        Return a cached admin user, inserting into the DB.
+        """
+
+        if self._admin is None:
+            self._admin_to_db()
+        return self._admin  # type: ignore[return-value]
+
+
+    def _admin_to_db(self) -> None:
+        """
+        Load `fixtures/admin_user.json`, create a user via UserRepository,
+        set staff flags and hashed password, then cache it.
+        """
+        # 1) Load the JSON fixture
+        fixtures_dir = Path(__file__).resolve().parent / "fixtures"
+        with open(fixtures_dir / "admin.json", "r") as f:
+            records = json.load(f)
+
+        # Assuming a single‑record fixture:
+        data = records[0].get("fields")
+
+        # 2) Pull out the raw password
+        raw_password = data.pop("password")
+
+        # 3) Try to find existing user first, otherwise create new one
+        user_repo = UserRepository()
+        try:
+            # Try to get existing user by username first
+            user_queryset = user_repo.manager.filter_by(username=data.get('username'))
+            user = user_queryset.first()
+
+            if not user:
+                # Try to get by email
+                user_queryset = user_repo.manager.filter_by(email=data.get('email'))
+                user = user_queryset.first()
+        except Exception:
+            user = None
+
+        if not user:
+            # Create the user via your repository (handles email, registration_method, etc.)
+            user = user_repo.create_user(**data)
+
+        # 4) Mark as admin & set hashed password
+        user.is_staff = True
+
+        # If the fixture password isn't already hashed, hash it now
+        if not raw_password.startswith("pbkdf2_"):
+            user.password = make_password(raw_password)
+        else:
+            user.password = raw_password
+
+        user.save()
+
+        # 5) Cache for future calls
+        self._admin = user
+
+
+    def load_questionnaire(self, to_db: bool = False) -> Union[Dict[str, Any], Questionnaire]:
+        """
+        Load the first record from `fixtures/questionnaire.json`.
+
+        Args:
+            to_db (bool):
+                - If False, return the raw fixture data (a dict of fields).
+                - If True, persist that data via the repository and return
+                  the saved Questionnaire instance. The staff_id will be set
+                  to reference the admin user created by load_admin_in_db().
+
+        Returns:
+            Union[Dict[str, Any], Questionnaire]: Fixture fields or model instance.
+
+        Raises:
+            FileNotFoundError: If the fixture file does not exist.
+            ValueError: If the fixture file is empty or malformed.
+        """
+        # Locate the fixture
+        fixtures_dir = Path(__file__).resolve().parent / "fixtures"
+        fixture_path = fixtures_dir / "questionnaire.json"
+        if not fixture_path.is_file():
+            raise FileNotFoundError(f"Fixture not found at {fixture_path}")
+
+        # Load JSON
+        records = json.loads(fixture_path.read_text())
+        if not records or not isinstance(records, list):
+            raise ValueError("`questionnaire.json` must contain a non‑empty list of records")
+
+        # Extract the first record's fields
+        fields: Dict[str, Any] = records[0].get("fields", {})
+        if not fields:
+            raise ValueError("No `fields` key found in the first fixture record")
+
+        # Persist if requested
+        if to_db:
+            # Ensure we have an admin user and set it as the staff_id
+            admin_user = self.load_admin_in_db()
+            fields = fields.copy()  # Don't modify original fixture data
+            fields['staff_id'] = admin_user  # Pass the User instance, not the ID
+
+            repo = QuestionnaireRepository()
+            instance = repo.create_entity(**fields)
+            return instance
+
+        # Otherwise return raw data
+        return fields
+
         self.mock_cache.reset_mock()

@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from django.db.models.functions import Lower
 from django.contrib.auth.models import AbstractUser
 
+
 # Internal
 from cmn.base_model import BaseModel
 
@@ -37,11 +38,20 @@ class User(BaseModel, AbstractUser):
         (REG_GOOGLE, 'Google'),
     ]
 
-    registration_method: models.CharField = models.CharField(
+    registration = models.CharField(
         max_length=20,
         choices=REGISTRATION_CHOICES,
         help_text=_('Method used for account registration.'),
+        blank=True
     )
+
+    phone = models.CharField(
+        max_length=15,  # Enough for international numbers with + prefix
+        unique=True,
+        verbose_name="Phone number",
+        help_text="Enter phone number in international format, e.g. +380991234567"
+    )
+
 # If someone explicitly sets "is_verified": true or "is_verified": false in their request, that value will override the default.
     is_verified: models.BooleanField = models.BooleanField(
         blank=True,
@@ -68,7 +78,7 @@ class User(BaseModel, AbstractUser):
         """
         Human-readable representation, showing email and registration method.
         """
-        return f"User {self.email or '[unsaved]'} via {self.registration_method or '[unknown]'}"
+        return f"User {self.email or '[unsaved]'} via {self.registration or '[unknown]'}"
 
 
     @property
@@ -110,9 +120,4 @@ class User(BaseModel, AbstractUser):
             ('change_user_status', 'Grant or revoke a user’s verification status'),
             ('view_submissions', 'See all questionnaire submissions'),
             ('approve_submissions', 'Mark verification submissions as approved'),
-            ('reject_submissions', 'Mark verification submissions as failed and trigger re‑submission flows'),
-            ('assign_questionnaires', 'Allocate private questionnaires to specific user accounts or groups'),
-            ('view_audit_logs', 'Access a history of critical actions'),
-            ('export_data', 'Download user or submission data in CSV/JSON for reporting or compliance'),
-            ('manage_staff', 'Create or modify other admin/staff accounts'),
         ]
